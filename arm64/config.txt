@@ -1,0 +1,2 @@
+add in0.bin in1.bin out.bin
+sub out.bin in0.bin out1.bin
