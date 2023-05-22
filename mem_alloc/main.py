@@ -1,3 +1,6 @@
+from itertools import permutations
+
+
 class Allocator:
     class Block:
         def __init__(self, step_start, step_end, size, name) -> None:
@@ -16,23 +19,23 @@ class Allocator:
             return f"blcok {self.name}: range=[{self.step_start}, {self.step_end}], size={self.size}"
 
     def __init__(self, blocks):
-        # block represent tuple: (step_start, step_end, size)
+        # block representation: (step_start, step_end, size)
         self.blocks = [
             Allocator.Block(x[0], x[1], x[2], idx) for idx, x in enumerate(blocks)
         ]
         self.max_step = max([x.step_end for x in self.blocks])
-        self.allocation = {x.name: None for x in self.blocks}  # block offsets
-        self.intervals = []
-        for _ in range(self.max_step + 1):
-            self.intervals.append([[0, float("inf")]])
-    
-    def clear(self):
+        self.reset()
+
+    def reset(self):
         self.allocation = {x.name: None for x in self.blocks}  # block offsets
         self.intervals = []
         for _ in range(self.max_step + 1):
             self.intervals.append([[0, float("inf")]])
 
-    def find_base_and_update(self, step_start, step_end, sz):
+    def find_base_and_update(self, block):
+        step_start = block.step_start
+        step_end = block.step_end
+        sz = block.size
         base = 0
         # find base
         while True:
@@ -50,7 +53,6 @@ class Allocator:
                             break
             if not update_base:
                 break
-        # breakpoint()
         # update
         for step in range(step_start, step_end + 1):
             intervals = self.intervals[step]
@@ -65,13 +67,12 @@ class Allocator:
                 intervals.insert(pos, [base + sz, e])
             if s < base:
                 intervals.insert(pos, [s, base - 1])
-        # breakpoint()
         return base
 
     def allocation_size(self):
         allocation_size = 0
         for key, value in self.allocation.items():
-            allocation_size = max(allocation_size, value+self.blocks[key].size)
+            allocation_size = max(allocation_size, value + self.blocks[key].size)
         return allocation_size
 
     def draw(self):
@@ -100,11 +101,11 @@ class Allocator:
         print(self.allocation)
 
     def alloc_greedy_size(self):
-        sorted_blocks = sorted(self.blocks, reverse=True, key=lambda x: x.size)
+        sorted_blocks = sorted(
+            self.blocks, reverse=True, key=lambda x: (x.size, x.lifetime())
+        )
         for block in sorted_blocks:
-            base = self.find_base_and_update(
-                block.step_start, block.step_end, block.size
-            )
+            base = self.find_base_and_update(block)
             self.allocation[block.name] = base
 
     def alloc_greedy_breath(self):
@@ -124,26 +125,35 @@ class Allocator:
                 ):
                     sorted_blocks.append(block)
         for block in sorted_blocks:
-            base = self.find_base_and_update(
-                block.step_start, block.step_end, block.size
-            )
+            base = self.find_base_and_update(block)
             self.allocation[block.name] = base
 
-    def alloc_best_fit_heuristic(self):
-        def priority(block0, block1):
-            # return True if block0 have higher priority to allocate
-            # TODO: try different stregy to find best priority
-            nonlocal s, e
-            if block0.lifetime() > block1.lifetime():
-                return True
-            elif block.lifetime() == candidate_block.lifetime():
-                max0 = max(block0.step_start - s, e - block0.step_end)
-                max1 = max(block1.step_start - s, e - block1.step_end)
-                if max0 > max1:
-                    return True
-                elif max0 == max1 and block0.size > block1.size:
-                    return True
-            return False
+    def alloc_best_fit_heuristic(self, arg=64):
+        # arg is in [64,65,...,112]
+        def priority(block):
+            # return priority of block based on different strategy
+            # test shows origin is the best
+            origin = (
+                block.lifetime(),
+                max(block.step_start - s, e - block.step_end),
+                block.size,
+            )
+            choices = []
+            for x, y, z in permutations(origin):
+                choices.append((x, y, z))
+                choices.append((x, y, -z))
+                choices.append((x, -y, z))
+                choices.append((x, -y, -z))
+                choices.append((-x, y, z))
+                choices.append((-x, y, -z))
+                choices.append((-x, -y, z))
+                choices.append((-x, -y, -z))
+            return choices[arg - 64]
+            # return (
+            #     block.lifetime(),
+            #     max(block.step_start - s, e - block.step_end),
+            #     block.size,
+            # )
 
         bases = [[0, self.max_step, 0]]  # [step_start, step_end, base]
         unallacated_num = len(self.blocks)
@@ -156,18 +166,15 @@ class Allocator:
                     min_base = bases[i][2]
                     min_base_idx = i
             # find block that fit this base
-            candidate_block = None
             s, e, _ = bases[min_base_idx]
-            # breakpoint()
-            for block in self.blocks:
-                if (
-                    self.allocation[block.name] == None
-                    and s <= block.step_start
-                    and block.step_end <= e
-                ):
-                    if candidate_block == None or priority(block, candidate_block):
-                        candidate_block = block
-            if candidate_block == None:
+            filtered_blocks = filter(
+                lambda block: self.allocation[block.name] == None
+                and s <= block.step_start
+                and block.step_end <= e,
+                self.blocks,
+            )
+            filtered_blocks = list(filtered_blocks)
+            if len(filtered_blocks) == 0:
                 # no fit block for this base, update this base
                 # find neighbor with min base, and merge with it
                 base0 = float("inf")
@@ -192,6 +199,11 @@ class Allocator:
                     _, step_end, _ = bases.pop(min_base_idx)
                     bases.insert(min_base_idx, [step_start, step_end, base1])
             else:
+                # find best block to allocate
+                candidate_block = filtered_blocks[0]
+                for block in filtered_blocks[1:]:
+                    if priority(block) > priority(candidate_block):
+                        candidate_block = block
                 # allocate block
                 del bases[min_base_idx]
                 if e != candidate_block.step_end:
@@ -215,47 +227,110 @@ class Allocator:
                 if unallacated_num == 0:
                     break
 
+    def alloc_customize(self, arg):
+        if arg in [0, 1, 2, 3, 4, 5, 6, 7]:
+            # simple greedy methods, test result show that large size first is better, than large lifetime
+            if arg == 0:
+                key = lambda x: (x.lifetime(), x.size)
+            elif arg == 1:
+                key = lambda x: (x.lifetime(), -x.size)
+            elif arg == 2:
+                key = lambda x: (-x.lifetime(), x.size)
+            elif arg == 3:
+                key = lambda x: (-x.lifetime(), -x.size)
+            elif arg == 4:
+                key = lambda x: (x.size, x.lifetime())
+            elif arg == 5:
+                key = lambda x: (x.size, -x.lifetime())
+            elif arg == 6:
+                key = lambda x: (-x.size, x.lifetime())
+            elif arg == 7:
+                key = lambda x: (-x.size, -x.lifetime())
+            sorted_blocks = sorted(self.blocks, key=key)
+            for block in sorted_blocks:
+                base = self.find_base_and_update(block)
+                self.allocation[block.name] = base
+        elif arg == 8:
+            self.alloc_greedy_size()
+        elif arg == 9:
+            self.alloc_greedy_breath()
+        elif arg == 10:
+            self.alloc_best_fit_heuristic()
+        elif arg in list(range(64, 112)):
+            self.alloc_best_fit_heuristic(arg)
+        else:
+            print("unsupport strategy")
+            quit()
 
-# block represent tuple: (step_start, step_end, size)
-# blocks = [
-#     (0, 1, 32),
-#     (5, 7, 64),
-#     (1, 4, 28),
-#     (6, 8, 10),
-#     (2, 5, 36),
-#     (7, 8, 40),
-#     (3, 5, 16),
-#     (4, 5, 8),
-# ]
-# s = Allocator(blocks)
-# s.alloc_greedy_size()
-# # s.alloc_greedy_breath()
-# # s.alloc_best_fit_heuristic()
-# s.draw()
 
-from random import randint
-x1 = x2 = x3 = 0 # best times
-for _ in range(100):
-    blocks = []
-    for _ in range(randint(4, 30)):
-        start = randint(0, 50)
-        block = [start, start+randint(0, 50), randint(1, 20)]
-        blocks.append(block)
+def papper_example():
+    # block represent tuple: (step_start, step_end, size)
+    blocks = [
+        (0, 1, 32),
+        (5, 7, 64),
+        (1, 4, 28),
+        (6, 8, 10),
+        (2, 5, 36),
+        (7, 8, 40),
+        (3, 5, 16),
+        (4, 5, 8),
+    ]
     s = Allocator(blocks)
-    s.alloc_greedy_size()
-    s1 = s.allocation_size()
-    s.clear()
-    s.alloc_greedy_breath()
-    s2 = s.allocation_size()
-    s.clear()
     s.alloc_best_fit_heuristic()
-    s3 = s.allocation_size()
-    print(f"[{s1}, {s2}, {s3}]")
-    m = min(s1, s2, s3)
-    if s1 == m:
-        x1 += 1
-    if s2 == m:
-        x2 += 1
-    if s3 == m:
-        x3 += 1
-print(f"[{x1}, {x2}, {x3}]")
+    s.draw()
+
+
+def random_test():
+    from random import randint
+
+    # strategys = list(range(8))+[8]+list(range(64, 64+48))
+    strategys = list(range(11))
+    x = {i: 0 for i in strategys}  # best times
+    xx = {i: 0 for i in strategys}  # best times, more strict(only one best strategy)
+    sz = {i: 0 for i in strategys}  # space size needed, less is better
+    print("=========space size===========")
+    for _ in range(500):
+        blocks = []
+        for _ in range(randint(4, 30)):
+            start = randint(0, 50)
+            block = [start, start + randint(0, 50), randint(1, 20)]
+            blocks.append(block)
+        s = Allocator(blocks)
+        for i in strategys:
+            s.reset()
+            s.alloc_customize(i)
+            sz[i] = s.allocation_size()
+        print(sz.values())
+        m = min(sz.values())
+        if list(sz.values()).count(m) == 1:
+            only_one = True
+        else:
+            only_one = False
+        for i in strategys:
+            if sz[i] == m:
+                x[i] += 1
+                if only_one:
+                    xx[i] += 1
+    value10 = sorted(list(x.values()), reverse=True)[min(9, len(x) - 1)]
+    value5 = sorted(list(x.values()), reverse=True)[min(4, len(x) - 1)]
+    value1 = sorted(list(x.values()), reverse=True)[0]
+    print("=========best strategys===========")
+    best10 = []  # best 10 strategy
+    best5 = []  # best 5 strategy
+    best1 = []  # best 1 strategy
+    for k, v in x.items():
+        if v >= value10:
+            best10.append(k)
+        if v >= value5:
+            best5.append(k)
+        if v >= value1:
+            best1.append(k)
+    print(f"best10:{best10}")
+    print(f"best5:{best5}")
+    print(f"best1:{best1}")
+    print("=========best times==========")
+    print(x.values())
+    print(xx.values())
+
+
+random_test()
