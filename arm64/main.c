@@ -46,7 +46,7 @@ void open_map_in(Data *data) {
     perror("mmap");
     exit(-1);
   }
-  printf("addr: %p\n", data->addr);
+  // printf("addr: %p\n", data->addr);
 }
 
 void open_map_out(Data *data) {
@@ -64,7 +64,7 @@ void open_map_out(Data *data) {
     perror("mmap");
     exit(-1);
   }
-  printf("addr: %p\n", data->addr);
+  // printf("addr: %p\n", data->addr);
 }
 
 void close_map(Data data) {
@@ -109,8 +109,10 @@ int run() {
       }
       float mean[3] = {atof(bufs[3]), atof(bufs[4]), atof(bufs[5])};
       float std[3] = {atof(bufs[6]), atof(bufs[7]), atof(bufs[8])};
-      ((func_preprocess)func)(out.addr, in.addr, mean, std, atoi(bufs[9]),
-                              atoi(bufs[10]), atoi(bufs[11]));
+      int N = atoi(bufs[9]);
+      int H = atoi(bufs[10]);
+      int W = atoi(bufs[11]);
+      ((func_preprocess)func)(out.addr, in.addr, mean, std, N, H, W);
       close_map(in);
       close_map(out);
       Data out_torch;
@@ -119,7 +121,7 @@ int run() {
       strcpy(out_torch.file_name, bufs[0]);
       open_map_in(&out);
       open_map_in(&out_torch);
-      calc_diff((float *)out.addr, (float *)out_torch.addr, 24);
+      calc_diff((float *)out.addr, (float *)out_torch.addr, 3 * N * H * W);
     } else if (strcmp(bufs[0], "postprocess") == 0) {
       for (int i = 1; i <= 6; ++i)
         fscanf(file_config, "%s", bufs[i]);
@@ -133,8 +135,11 @@ int run() {
         fprintf(stderr, "%s\n", error);
         exit(-1);
       }
-      ((func_postprocess)func)(out.addr, in.addr, atoi(bufs[3]), atoi(bufs[4]),
-                               atoi(bufs[5]), atoi(bufs[6]));
+      int k = atoi(bufs[3]);
+      int mode = atoi(bufs[4]);
+      int N = atoi(bufs[5]);
+      int C = atoi(bufs[6]);
+      ((func_postprocess)func)(out.addr, in.addr, k, mode, N, C);
       close_map(in);
       close_map(out);
       Data out_torch;
@@ -143,7 +148,10 @@ int run() {
       strcpy(out_torch.file_name, bufs[0]);
       open_map_in(&out);
       open_map_in(&out_torch);
-      calc_diff((float *)out.addr, (float *)out_torch.addr, 24);
+      if (mode == 0 || mode == 1)
+        calc_diff((float *)out.addr, (float *)out_torch.addr, N * k);
+      else if (mode == 2)
+        calc_diff((float *)out.addr, (float *)out_torch.addr, 2 * N * k);
     } else {
       printf("error not support: %s\n", bufs[0]);
       exit(-1);

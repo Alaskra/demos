@@ -1,13 +1,17 @@
-a.out: main.c math.so
-	gcc main.c -ldl
-	LD_LIBRARY_PATH=. ./a.out
-math.so: math.c
+CC=aarch64-linux-gnu-gcc
+
+a.out: main.c libmath.so
+	$(CC) main.c -ldl
+	LD_LIBRARY_PATH=. qemu-aarch64 -L /usr/aarch64-linux-gnu ./a.out
+libmath.so: math.c
+	$(CC) -c -fPIC math.c
+	$(CC) -shared -o libmath.so math.o
+x86:
 	gcc -c -fPIC math.c
 	gcc -shared -o libmath.so math.o
-arm64:
-	aarch64-linux-gnu-gcc -c -fPIC math.c
-	aarch64-linux-gnu-gcc -shared -o libmath.so math.o
-	aarch64-linux-gnu-gcc main.c -ldl
-	LD_LIBRARY_PATH=. qemu-aarch64 -L /usr/aarch64-linux-gnu ./a.out
+	gcc main.c -ldl
+	LD_LIBRARY_PATH=. ./a.out
 clean:
-	rm *.o libmath.so *.bin a.out config.txt
+	rm *.o libmath.so a.out
+clean_all:
+	rm *.o libmath.so a.out config.txt *.bin 
