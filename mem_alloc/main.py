@@ -3,7 +3,7 @@ from itertools import permutations
 
 class Allocator:
     class Block:
-        def __init__(self, step_start, step_end, size, name) -> None:
+        def __init__(self, step_start, step_end, size, name):
             self.step_start = step_start
             self.step_end = step_end
             self.size = size
@@ -38,27 +38,21 @@ class Allocator:
         sz = block.size
         base = 0
         # find base
-        while True:
+        update_base = True
+        while update_base:
             update_base = False
-            for step in range(step_start, step_end + 1):
-                intervals = self.intervals[step]
-                for i in range(len(intervals)):
-                    s, e = intervals[i]
-                    if s <= base and base + sz - 1 <= e:
-                        break
+            for intervals in self.intervals[step_start:step_end+1]:
+                for s, e in intervals:
                     if base < s:
                         base = s
                         update_base = True
-                        if s <= base and base + sz - 1 <= e:
-                            break
-            if not update_base:
-                break
+                    if s <= base and base + sz - 1 <= e:
+                        break
         # update
-        for step in range(step_start, step_end + 1):
-            intervals = self.intervals[step]
+        for intervals in self.intervals[step_start: step_end+1]:
             pos = 0
-            for i in range(len(intervals)):
-                s, e = intervals[i]
+            for i, interval in enumerate(intervals):
+                s, e = interval
                 if s <= base and base + sz - 1 <= e:
                     pos = i
                     break
@@ -276,24 +270,29 @@ def papper_example():
         (4, 5, 8),
     ]
     s = Allocator(blocks)
-    s.alloc_best_fit_heuristic()
+    s.alloc_greedy_size()
     s.draw()
+
+papper_example()
 
 
 def random_test():
     from random import randint
 
-    # strategys = list(range(8))+[8]+list(range(64, 64+48))
-    strategys = list(range(11))
+    # strategys = list(range(8))+[8, 9, 10]+list(range(64, 64+48))  # all strategys
+    # strategys = list(range(64, 64+8))
+    strategys = [8,9,10]
     x = {i: 0 for i in strategys}  # best times
     xx = {i: 0 for i in strategys}  # best times, more strict(only one best strategy)
     sz = {i: 0 for i in strategys}  # space size needed, less is better
     print("=========space size===========")
     for _ in range(500):
         blocks = []
+        # for _ in range(randint(4, 50)):
         for _ in range(randint(4, 30)):
             start = randint(0, 50)
             block = [start, start + randint(0, 50), randint(1, 20)]
+            # block = [start, start + randint(0, 20), randint(1, 40)]
             blocks.append(block)
         s = Allocator(blocks)
         for i in strategys:
