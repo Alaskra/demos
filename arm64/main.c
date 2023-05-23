@@ -8,49 +8,75 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-void open_map_in(char *file_name, void **addr, int *fd) {
-  *fd = open(file_name, O_RDONLY);
-  if (*fd == -1) {
+typedef struct data {
+  char file_name[100];
+  int fd;
+  void *addr;
+} Data;
+
+float abs_float(float f) {
+  if (f < 0) {
+    return -f;
+  } else {
+    return f;
+  }
+}
+
+void calc_diff(float *output, float *base, int size) {
+  // relative error
+  // RE = (1/n) * Σ(|yᵢ - ŷᵢ| / |yᵢ|) * 100%
+  float err = 0;
+  int sub;
+  for (int i = 0; i < size; ++i) {
+    err += abs_float(output[i] - base[i]) / abs_float(base[i]);
+    // printf("%f, %f\n", output[i], base[i]);
+  }
+  err /= size;
+  printf("relative error: %f\n", err);
+}
+
+void open_map_in(Data *data) {
+  data->fd = open(data->file_name, O_RDONLY);
+  if (data->fd == -1) {
     perror("open");
     exit(-1);
   }
-  *addr = mmap(NULL, 4, PROT_READ, MAP_PRIVATE, *fd, 0);
-  if (*addr == MAP_FAILED) {
+  data->addr = mmap(NULL, 4, PROT_READ, MAP_PRIVATE, data->fd, 0);
+  if (data->addr == MAP_FAILED) {
     perror("mmap");
     exit(-1);
   }
-  printf("addr: %p\n", *addr);
+  printf("addr: %p\n", data->addr);
 }
 
-void open_map_out(char *file_name, void **addr, int *fd) {
-  *fd = open(file_name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-  if (*fd == -1) {
+void open_map_out(Data *data) {
+  data->fd = open(data->file_name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+  if (data->fd == -1) {
     perror("open");
     exit(-1);
   }
-  if (ftruncate(*fd, 4) == -1) {
+  if (ftruncate(data->fd, 4) == -1) {
     perror("ftruncate");
     exit(-1);
   }
-  *addr = mmap(NULL, 4, PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0);
-  if (*addr == MAP_FAILED) {
+  data->addr = mmap(NULL, 4, PROT_READ | PROT_WRITE, MAP_SHARED, data->fd, 0);
+  if (data->addr == MAP_FAILED) {
     perror("mmap");
     exit(-1);
   }
-  printf("addr: %p\n", *addr);
+  printf("addr: %p\n", data->addr);
 }
 
-void close_map(void *addr, int fd) {
-  if (munmap(addr, 4) == -1) {
+void close_map(Data data) {
+  if (munmap(data.addr, 4) == -1) {
     perror("munmap");
     exit(-1);
   }
-  close(fd);
+  close(data.fd);
 }
 
-int main() {
-  int fd0, fd1, fd;
-  void *in0, *in1, *out;
+int run() {
+  Data in, out;
   char *error;
   void *func;
   void *handle = dlopen("./libmath.so", RTLD_LAZY);
@@ -58,40 +84,72 @@ int main() {
     fprintf(stderr, "%s\n", dlerror());
     exit(-1);
   }
-  char func_name[100];
-  char in0_name[100];
-  char in1_name[100];
-  char out_name[100];
+  char *bufs[20];
+  for (int i = 0; i < 20; ++i) {
+    bufs[i] = malloc(100);
+  }
   FILE *file_config = fopen("config.txt", "r");
   if (file_config == NULL) {
     perror("open");
     exit(-1);
   }
-  while (fscanf(file_config, "%s %s %s %s", func_name, in0_name, in1_name,
-                out_name) != EOF) {
-
-    open_map_in(in0_name, &in0, &fd0);
-    open_map_in(in1_name, &in1, &fd1);
-    open_map_out(out_name, &out, &fd);
-    func = dlsym(handle, func_name);
-    if ((error = dlerror()) != NULL) {
-      fprintf(stderr, "%s\n", error);
+  while (fscanf(file_config, "%s", bufs[0]) != EOF) {
+    if (strcmp(bufs[0], "preprocess") == 0) {
+      for (int i = 1; i <= 11; ++i)
+        fscanf(file_config, "%s", bufs[i]);
+      Data in, out;
+      strcpy(out.file_name, bufs[1]);
+      strcpy(in.file_name, bufs[2]);
+      open_map_in(&in);
+      open_map_out(&out);
+      func = dlsym(handle, bufs[0]);
+      if ((error = dlerror()) != NULL) {
+        fprintf(stderr, "%s\n", error);
+        exit(-1);
+      }
+      float mean[3] = {atof(bufs[3]), atof(bufs[4]), atof(bufs[5])};
+      float std[3] = {atof(bufs[6]), atof(bufs[7]), atof(bufs[8])};
+      ((func_preprocess)func)(out.addr, in.addr, mean, std, atoi(bufs[9]),
+                              atoi(bufs[10]), atoi(bufs[11]));
+      close_map(in);
+      close_map(out);
+      Data out_torch;
+      strcpy(bufs[0], "torch_");
+      strcat(bufs[0], out.file_name);
+      strcpy(out_torch.file_name, bufs[0]);
+      open_map_in(&out);
+      open_map_in(&out_torch);
+      calc_diff((float *)out.addr, (float *)out_torch.addr, 24);
+    } else if (strcmp(bufs[0], "postprocess") == 0) {
+      for (int i = 1; i <= 6; ++i)
+        fscanf(file_config, "%s", bufs[i]);
+      Data in, out;
+      strcpy(out.file_name, bufs[1]);
+      strcpy(in.file_name, bufs[2]);
+      open_map_in(&in);
+      open_map_out(&out);
+      func = dlsym(handle, bufs[0]);
+      if ((error = dlerror()) != NULL) {
+        fprintf(stderr, "%s\n", error);
+        exit(-1);
+      }
+      ((func_postprocess)func)(out.addr, in.addr, atoi(bufs[3]), atoi(bufs[4]),
+                               atoi(bufs[5]), atoi(bufs[6]));
+      close_map(in);
+      close_map(out);
+      Data out_torch;
+      strcpy(bufs[0], "torch_");
+      strcat(bufs[0], out.file_name);
+      strcpy(out_torch.file_name, bufs[0]);
+      open_map_in(&out);
+      open_map_in(&out_torch);
+      calc_diff((float *)out.addr, (float *)out_torch.addr, 24);
+    } else {
+      printf("error not support: %s\n", bufs[0]);
       exit(-1);
     }
-
-    if (strcmp(func_name, "add") == 0)
-      ((func_add)func)(in0, in1, out);
-    else if (strcmp(func_name, "sub") == 0)
-      ((func_sub)func)(in0, in1, out);
-    else {
-        perror("function not support");
-        exit(-1);
-    }
-
-    close_map(in0, fd0);
-    close_map(in1, fd1);
-    close_map(out, fd);
   }
-
   return 0;
 }
+
+int main() { run(); }

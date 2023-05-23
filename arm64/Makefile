@@ -10,4 +10,4 @@ arm64:
 	aarch64-linux-gnu-gcc main.c -ldl
 	LD_LIBRARY_PATH=. qemu-aarch64 -L /usr/aarch64-linux-gnu ./a.out
 clean:
-	rm a.out add.o libadd.so out.bin out1.bin
+	rm *.o libmath.so *.bin a.out config.txt

@@ -280,13 +280,13 @@ def random_test():
     from random import randint
 
     # strategys = list(range(8))+[8, 9, 10]+list(range(64, 64+48))  # all strategys
-    # strategys = list(range(64, 64+8))
-    strategys = [8,9,10]
+    strategys = list(range(64, 64+48))
+    # strategys = [8,9,10]
     x = {i: 0 for i in strategys}  # best times
     xx = {i: 0 for i in strategys}  # best times, more strict(only one best strategy)
     sz = {i: 0 for i in strategys}  # space size needed, less is better
     print("=========space size===========")
-    for _ in range(500):
+    for _ in range(1000):
         blocks = []
         # for _ in range(randint(4, 50)):
         for _ in range(randint(4, 30)):
