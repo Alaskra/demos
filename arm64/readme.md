@@ -18,6 +18,15 @@ python3.10
 
 python test.py
 
+## 整体流程
+
+config.txt配置文件中一行代表运行一个算子，每行记录了输入和输出的bin文件，以及算子的参数
+
+test.py执行流程如下：
+
+    make clean_all清除所有bin文件,so文件以及config文件
+    生成各算子
+
 ## 参考
 
 https://azeria-labs.com/arm-on-x86-qemu-user/

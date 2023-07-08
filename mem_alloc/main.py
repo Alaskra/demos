@@ -41,7 +41,7 @@ class Allocator:
         update_base = True
         while update_base:
             update_base = False
-            for intervals in self.intervals[step_start:step_end+1]:
+            for intervals in self.intervals[step_start : step_end + 1]:
                 for s, e in intervals:
                     if base < s:
                         base = s
@@ -49,7 +49,7 @@ class Allocator:
                     if s <= base and base + sz - 1 <= e:
                         break
         # update
-        for intervals in self.intervals[step_start: step_end+1]:
+        for intervals in self.intervals[step_start : step_end + 1]:
             pos = 0
             for i, interval in enumerate(intervals):
                 s, e = interval
@@ -73,8 +73,10 @@ class Allocator:
         import matplotlib.pyplot as plt
 
         plt.xlim(0, self.allocation_size())
-        # plt.ylim(0, self.max_step + 1)
-        plt.ylim(self.max_step + 1, 0)
+        plt.ylim(0, self.max_step + 1)
+        # plt.ylim(self.max_step + 1, 0)
+        plt.xlabel("memory space")
+        plt.ylabel("time step")
         for block in self.blocks:
             x1 = x4 = self.allocation[block.name]
             x2 = x3 = self.allocation[block.name] + block.size
@@ -177,21 +179,7 @@ class Allocator:
                     base0 = bases[min_base_idx - 1][2]
                 if min_base_idx != len(bases) - 1:
                     base1 = bases[min_base_idx + 1][2]
-                if base0 < base1:
-                    min_base_idx -= 1
-                    step_start, _, _ = bases.pop(min_base_idx)
-                    _, step_end, _ = bases.pop(min_base_idx)
-                    bases.insert(min_base_idx, [step_start, step_end, base0])
-                elif base1 < base0:
-                    step_start, _, _ = bases.pop(min_base_idx)
-                    _, step_end, _ = bases.pop(min_base_idx)
-                    bases.insert(min_base_idx, [step_start, step_end, base1])
-                else:  # the case that two neighbor have the same base
-                    min_base_idx -= 1
-                    step_start, _, _ = bases.pop(min_base_idx)
-                    _, _, _ = bases.pop(min_base_idx)
-                    _, step_end, _ = bases.pop(min_base_idx)
-                    bases.insert(min_base_idx, [step_start, step_end, base1])
+                bases[min_base_idx][2] = min(base0, base1)
             else:
                 # find best block to allocate
                 candidate_block = filtered_blocks[0]
@@ -200,10 +188,7 @@ class Allocator:
                         candidate_block = block
                 # allocate block
                 del bases[min_base_idx]
-                if e != candidate_block.step_end:
-                    bases.insert(
-                        min_base_idx, [candidate_block.step_end + 1, e, min_base]
-                    )
+                bases.insert(min_base_idx, [candidate_block.step_end + 1, e, min_base])
                 bases.insert(
                     min_base_idx,
                     [
@@ -212,14 +197,23 @@ class Allocator:
                         min_base + candidate_block.size,
                     ],
                 )
-                if candidate_block.step_start != s:
-                    bases.insert(
-                        min_base_idx, [s, candidate_block.step_start - 1, min_base]
-                    )
+                bases.insert(
+                    min_base_idx, [s, candidate_block.step_start - 1, min_base]
+                )
                 self.allocation[candidate_block.name] = min_base
                 unallacated_num -= 1
                 if unallacated_num == 0:
                     break
+            # update bases
+            new_bases = [[-1, -1, -1]]
+            for base in bases:
+                if base[0] > base[1]:
+                    continue
+                if new_bases[-1][2] == base[2]:
+                    new_bases[-1][1] = base[1]
+                else:
+                    new_bases.append(base)
+            bases = new_bases[1:]
 
     def alloc_customize(self, arg):
         if arg in [0, 1, 2, 3, 4, 5, 6, 7]:
@@ -272,16 +266,56 @@ def papper_example():
     s = Allocator(blocks)
     s.alloc_greedy_size()
     s.draw()
+    s.reset()
+    s.alloc_best_fit_heuristic()
+    s.draw()
 
-papper_example()
+
+def example():
+    # block represent tuple: (step_start, step_end, size)
+    blocks_best_fit = [
+        (0, 0, 9),
+        (9, 9, 9),
+        (0, 8, 1),
+        (1, 9, 1),
+    ]
+
+    blocks = [
+        (0, 1, 32),
+        (1, 4, 28),
+        (6, 8, 10),
+        (2, 5, 36),
+        (7, 8, 40),
+        (3, 5, 16),
+        (4, 5, 8),
+    ]
+
+    blocks_size_more_important = [
+        [0, 2, 2],
+        [4, 6, 2],
+        [1,2,2],
+        [3,4,4],
+        [5,6,2],
+        [2,3,7]
+    ]
+    # s = Allocator(blocks_size_more_important)
+    s = Allocator(blocks)
+    s.alloc_greedy_size()
+    s.draw()
+    s.reset()
+    s.alloc_best_fit_heuristic(arg=96)
+    s.draw()
 
 
 def random_test():
     from random import randint
 
     # strategys = list(range(8))+[8, 9, 10]+list(range(64, 64+48))  # all strategys
-    strategys = list(range(64, 64+48))
-    # strategys = [8,9,10]
+    # strategys = list(range(64, 64 + 48))
+    # strategys = [64,96]
+    # strategys = [96,8]
+    # strategys = [64, 72, 96, 104, 8]
+    strategys = [8,9,10]
     x = {i: 0 for i in strategys}  # best times
     xx = {i: 0 for i in strategys}  # best times, more strict(only one best strategy)
     sz = {i: 0 for i in strategys}  # space size needed, less is better
@@ -299,6 +333,8 @@ def random_test():
             s.reset()
             s.alloc_customize(i)
             sz[i] = s.allocation_size()
+            # s.draw()
+            # quit()
         print(sz.values())
         m = min(sz.values())
         if list(sz.values()).count(m) == 1:
@@ -311,25 +347,27 @@ def random_test():
                 if only_one:
                     xx[i] += 1
     value10 = sorted(list(x.values()), reverse=True)[min(9, len(x) - 1)]
-    value5 = sorted(list(x.values()), reverse=True)[min(4, len(x) - 1)]
+    value3 = sorted(list(x.values()), reverse=True)[min(2, len(x) - 1)]
     value1 = sorted(list(x.values()), reverse=True)[0]
     print("=========best strategys===========")
     best10 = []  # best 10 strategy
-    best5 = []  # best 5 strategy
+    best3 = []  # best 3 strategy
     best1 = []  # best 1 strategy
     for k, v in x.items():
         if v >= value10:
             best10.append(k)
-        if v >= value5:
-            best5.append(k)
+        if v >= value3:
+            best3.append(k)
         if v >= value1:
             best1.append(k)
     print(f"best10:{best10}")
-    print(f"best5:{best5}")
+    print(f"best3:{best3}")
     print(f"best1:{best1}")
     print("=========best times==========")
     print(x.values())
     print(xx.values())
 
 
+# papper_example()
+# example()
 random_test()
